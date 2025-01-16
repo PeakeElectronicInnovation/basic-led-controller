@@ -1,0 +1,26 @@
+Description: LED controller for WS2811 strips
+Version: 1.0
+Author: Jeremy Peake
+
+Project Overview:
+An LED controller for WS2811 strips, based on the ESP-WROOM-32 devkit module using the Arduino framework in PlatformIO. This is specifically for an LED strip used in a feature planter at the top of a stairwell. The planter is a rectangle about 3m by 0.5m, and a continuous LED strip running arount the inside of it.
+
+Goals:
+- Designed to control a single strip of WS2811 LEDs, using up to 1000 per strip.
+- Has a WiFi accessed web interface to control the strip, including the ability to add the unit to the home network while not currently connected to a network.
+- Has a MQTT interface to Home Assistant.
+- Has basic color and brightness control.
+- Has some selactable effects which would suit the planter setup well.
+- Has a water ripple effect which should make it appear as though the planter is filled with water.
+- May use exisitng Arduino libraries for any of the required features.
+
+Steps:
+- Create a new project in PlatformIO
+- Add the ESP-WROOM-32 devkit module
+- Add the WS2811 library
+- Add the MQTT library
+- Add the WiFi library
+- Add the ESPAsyncWebServer library
+- Add the AsyncMqttClient library
+- Create a Home Assistant discovery entry
+- Create a MQTT discovery entry for Home Assistant

@@ -5,6 +5,7 @@
 #include <AsyncMqttClient.h>
 #include <ArduinoJson.h>
 #include <EEPROM.h>
+#include <Update.h>
 #include "config.h"
 #include "web_interface.h"
 #include "effects.h"
@@ -38,6 +39,163 @@ AsyncMqttClient mqttClient;
 Effects* effects;
 SettingsManager settingsManager;
 MQTTHandler* mqtt;
+
+// HTML for update page
+const char* updateHTML = R"(
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LED Controller Update</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f0f0f0;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        h2 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .info {
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #e8f4f8;
+            border-radius: 4px;
+        }
+        form {
+            margin-top: 20px;
+        }
+        input[type="file"] {
+            display: block;
+            margin: 10px 0;
+            width: 100%;
+        }
+        input[type="submit"] {
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        input[type="submit"]:hover {
+            background: #45a049;
+        }
+        #progress {
+            margin-top: 20px;
+            display: none;
+        }
+        .progress-bar {
+            height: 20px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #4CAF50;
+            width: 0%;
+            transition: width 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>LED Controller Firmware Update</h2>
+        <div class="info">
+            Current Version: %VERSION%<br>
+            Free Space: %FREESPACE% bytes
+        </div>
+        <form method='POST' action='/update' enctype='multipart/form-data' id='upload_form'>
+            <input type='file' name='update' accept='.bin'>
+            <input type='submit' value='Update Firmware'>
+        </form>
+        <div id="progress">
+            <p>Upload Progress: <span id="percent">0%</span></p>
+            <div class="progress-bar">
+                <div class="progress-fill" id="bar"></div>
+            </div>
+        </div>
+    </div>
+    <script>
+        var form = document.getElementById('upload_form');
+        var progress = document.getElementById('progress');
+        var percent = document.getElementById('percent');
+        var bar = document.getElementById('bar');
+
+        form.onsubmit = function(e) {
+            e.preventDefault();
+            var data = new FormData(form);
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', '/update', true);
+            
+            // Show progress bar
+            progress.style.display = 'block';
+            
+            xhr.upload.onprogress = function(e) {
+                if (e.lengthComputable) {
+                    var percentComplete = (e.loaded / e.total) * 100;
+                    percent.textContent = percentComplete.toFixed(2) + '%';
+                    bar.style.width = percentComplete + '%';
+                }
+            };
+            
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    alert('Update successful! Device will restart.');
+                } else {
+                    alert('Update failed!');
+                }
+            };
+            
+            xhr.send(data);
+        };
+    </script>
+</body>
+</html>
+)";
+
+void handleUpdate(AsyncWebServerRequest *request) {
+    String html = String(updateHTML);
+    html.replace("%VERSION%", FIRMWARE_VERSION);
+    html.replace("%FREESPACE%", String(ESP.getFreeSketchSpace()));
+    request->send(200, "text/html", html);
+}
+
+void handleDoUpdate(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+    if (!index) {
+        Serial.println("Update started");
+        if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+            Update.printError(Serial);
+            return request->send(400, "text/plain", "OTA update failed");
+        }
+    }
+
+    if (Update.write(data, len) != len) {
+        Update.printError(Serial);
+        return request->send(400, "text/plain", "OTA update failed");
+    }
+
+    if (final) {
+        if (!Update.end(true)) {
+            Update.printError(Serial);
+            return request->send(400, "text/plain", "OTA update failed");
+        }
+        Serial.println("Update complete");
+        request->send(200, "text/plain", "Update successful. Device will restart.");
+        delay(1000);
+        ESP.restart();
+    }
+}
 
 // Function declarations
 void setupWiFi();
@@ -276,7 +434,15 @@ void setupWebServer() {
     // Handle state retrieval
     server.on("/get-state", HTTP_GET, handleGetState);
 
+    // Handle OTA Update
+    server.on("/update", HTTP_GET, handleUpdate);
+    server.on("/update", HTTP_POST, [](AsyncWebServerRequest *request) {
+        request->send(200);
+    }, handleDoUpdate);
+    
+    // Start server
     server.begin();
+    Serial.println("HTTP server started");
 }
 
 void handleRequests() {
